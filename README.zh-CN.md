@@ -3,7 +3,7 @@
 [English](README.md)
 
 基于 [Epic Games 官方技能仓库](https://github.com/EpicGames/unreal-engine-skills-for-claude-code-plugin)的
-**Codex 社区适配版**，由 Idris173 维护。保留上游 Git 历史和 MIT 版权，不代表 Epic Games 或 OpenAI 官方发行。
+**Codex 社区适配版**。保留上游 Git 历史和 MIT 版权，不代表 Epic Games 或 OpenAI 官方发行。
 本插件提供官方 MCP 工具的工作流，不包含 UE 引擎或引擎侧插件。
 
 | Skill | 用途 |
