@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal Agent Skill"
+  short_description: "Author Agent Skills registered in Unreal Editor"
+  default_prompt: "Use $unreal-skill to create an editor-registered Agent Skill for my Unreal workflow."

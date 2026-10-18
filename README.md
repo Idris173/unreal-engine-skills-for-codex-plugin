@@ -1,112 +1,121 @@
-# Unreal Engine Skills for Claude Code
+# Unreal Engine Skills for Codex
 
-Control Unreal Editor directly from Claude Code via MCP. Hundreds of tools exposed via Unreal's ToolsetRegistry across 30+ toolsets: actors, blueprints, materials, Niagara, Control Rigs, Sequencer, State Trees, widgets, Gameplay Ability System, automation testing, and more.
+[简体中文](README.zh-CN.md)
 
-## Contents
+A community Codex adaptation of [Epic Games' Unreal Engine skills](https://github.com/EpicGames/unreal-engine-skills-for-claude-code-plugin).
+Not an official Epic Games or OpenAI release. Original MIT copyright and Git history are preserved.
 
-### Skills
+This plugin teaches Codex to use **Unreal Engine's official MCP server and ToolsetRegistry**.
+It does not include Unreal Engine, the engine-side plugins, or a replacement MCP server.
 
-- **`unreal-mcp`** (`skills/unreal-mcp`) - instructions and workflows for driving the Unreal Editor via MCP.
+| Skill | Use it for |
+| --- | --- |
+| `unreal-mcp` | Connect to, inspect, and operate a live Unreal Editor; diagnose connections |
+| `create-toolset` | Author or extend C++/Python tools registered with ToolsetRegistry |
+| `unreal-skill` | Author Unreal's in-editor Agent Skills (Python classes or UAssets) |
 
-### Hooks
+## Requirements
 
-- **SessionStart** (`hooks/unreal-context.sh`) - injects a short note identifying the repo as an Unreal Engine project so Claude defaults to UE conventions (C++/`UObject`, Slate, UHT) and prefers the `unreal-mcp` skill. Runs on `startup`, `resume`, and `clear`.
+- A local Codex client supporting Skills and MCP; marketplace installation also requires plugin support.
+- An engine containing `ModelContextProtocol` and `AllToolsets` (or the specific toolset plugins you need).
+- A running editor and MCP server for live operations.
+- Python **3.11+** for the optional configuration helper/development checks; manual MCP setup needs no Python.
 
-## Prerequisites
+There is no verified universal minimum UE version. See [validation evidence](docs/VALIDATION.md) for tested builds.
 
-1. **Unreal Editor** with the **ModelContextProtocol** and **AllToolsets** plugins enabled (`AllToolsets` provides the tools; the server exposes none without it)
-2. **Editor running to execute tools**, with the MCP server started. Run `ModelContextProtocol.StartServer`, or enable `bAutoStartServer` through `skills/unreal-mcp/references/setup.md`. The optional proxy can keep the client connection open while the editor is stopped.
-3. **A bash shell on `PATH`** - required for the `SessionStart` hook (see **Platform Support**)
+## Install
 
-## Platform Support
+In a supporting Codex CLI:
 
-Supported: **macOS**, **Linux**, and **Windows via Git Bash or WSL**.
-
-The `SessionStart` hook is a bash script (`hooks/unreal-context.sh`) invoked by `hooks/hooks.json` as `bash ${CLAUDE_PLUGIN_ROOT}/hooks/unreal-context.sh`. It requires a working `bash` on `PATH`:
-
-- **macOS / Linux:** works out of the box.
-- **Windows:** install **Git for Windows** (provides Git Bash) or run Claude Code under **WSL**. Native PowerShell without one of those does not have `bash` on `PATH`, and the hook will not run. The plugin's MCP tools still work; you just lose the short project-context note the hook injects at session start. There is no separate PowerShell companion script today.
-
-## Installation
-
-This plugin is published in Anthropic's official Claude Code plugin marketplace, `claude-plugins-official`, which is available automatically when you start Claude Code. Browse it at [claude.com/plugins](https://claude.com/plugins) or in the **Discover** tab of the `/plugin` panel.
-
-### Install for a single developer
-
-In Claude Code:
-
-```
-/plugin install unreal-engine-skills-for-claude-code@claude-plugins-official
+```sh
+codex plugin marketplace add Idris173/unreal-engine-skills-for-codex-plugin
+codex plugin add unreal-engine-skills-for-codex@unreal-codex
 ```
 
-If the official marketplace is not present, add it first, then run the install command above:
+For a local checkout, replace the first command with:
 
-```
-/plugin marketplace add anthropics/claude-plugins-official
-```
-
-### Install for a team
-
-Commit this to `.claude/settings.json` in the project that should use the plugin. Anyone who trusts the project folder is prompted to install it automatically:
-
-```json
-{
-  "enabledPlugins": {
-    "unreal-engine-skills-for-claude-code@claude-plugins-official": true
-  }
-}
+```powershell
+codex plugin marketplace add "H:\Unreal-Skill\unreal-engine-skills-for-codex-plugin"
 ```
 
-## Verification
+The desktop marketplace label is **Unreal Codex Community**. If your CLI lacks `plugin add`, install through
+the desktop plugin directory after registering the marketplace. Start a fresh chat if the skills do not appear.
+Avoid installing a second standalone copy of the same skills.
 
-1. Launch Unreal Editor, then run `ModelContextProtocol.StartServer` in the console to start the MCP server.
-2. Check the Output Log for MCP server startup messages.
-3. In Claude Code, run `/plugin`. The **Installed** tab should list `unreal-engine-skills-for-claude-code` as enabled. This confirms the plugin itself (skills, hooks) is loaded.
-4. Run `/mcp`. Check for `unreal-mcp`, or `unreal-mcp-proxy` if you installed the proxy. A connected proxy does not prove that Unreal is reachable.
-5. Try: "List all actors in the current level".
+The package provides a portable `plugin.json` and a `.codex-plugin/plugin.json` compatibility manifest.
+It does **not** automatically register a fixed MCP endpoint or run a lifecycle hook.
 
-## Configuration
+## Connect an editor
 
-The default port is **8000** with URL path `/mcp`. If the port is in use, run `ModelContextProtocol.StartServer <port>` in the console with a different port number.
+Enable `ModelContextProtocol` and `AllToolsets` in the project editor, restarting if requested.
+Run `ModelContextProtocol.StartServer` in the UE console; the default is `http://127.0.0.1:8000/mcp`.
+For an occupied port, use `ModelContextProtocol.StartServer <free-port>`.
+Choose **one** configuration route after checking existing connections:
 
-> **Note:** This plugin does not ship a static `.mcp.json` file. Run `ModelContextProtocol.GenerateClientConfig ClaudeCode` in the editor console to generate it from the current server port and URL; re-run after changing either.
+**Project configuration:** run this in the UE console:
 
-### Optional proxy for editor recovery
+```text
+ModelContextProtocol.GenerateClientConfig Codex
+```
 
-If your engine build includes `Engine/Plugins/Experimental/ModelContextProtocol/Extras/Proxy`, you can use its `unreal_mcp_proxy` executable.
+Installed builds write `.codex/config.toml` beside the `.uproject`; source builds write at the workspace root
+beside `Engine/`. Codex loads project configuration only in trusted projects. The generator refuses to overwrite
+existing TOML. To preview an addition from this checkout:
 
-The proxy keeps the client-facing MCP session open while Unreal is unavailable and reconnects when Unreal starts again. It stores Unreal's native tool catalog as a temporary fallback. Cached tools do not prove that live calls can succeed. Without a cache, it exposes only `unreal_mcp_status` until the client fetches the recovered catalog.
+```powershell
+python scripts/configure_mcp.py --config "F:\MyProject\.codex\config.toml" --url "http://127.0.0.1:8000/mcp"
+```
 
-See [proxy setup](skills/unreal-mcp/references/setup.md#4-optional-install-the-proxy) for platform binaries and installation commands. See [proxy recovery](skills/unreal-mcp/references/operations.md#proxy-recovery) for status, cached catalogs, and connection failures.
+Add `--apply` to write. The helper backs up an existing file, preserves unrelated text/comments, validates TOML,
+and refuses conflicting definitions. Identical entries remain unchanged. It checks only the selected file;
+inspect other config scopes and installed connectors for duplicates. Edit an existing entry deliberately when
+changing its port. Configs with custom ACLs/extended attributes should be merged manually.
 
-**Tool search** is enabled by default: the MCP server exposes three meta-tools (`list_toolsets`, `describe_toolset`, `call_tool`) instead of the full tool catalog, so Claude discovers toolsets on demand, the prompt cache stays warm, and discovered tools are callable on the same turn through `call_tool`. Toggle with the `bEnableToolSearch` setting in `[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]`; when disabled, every tool is registered upfront (path used by the hash-mapping commandlet). The model-facing usage contract lives in `skills/unreal-mcp/SKILL.md`.
+**User configuration:** alternatively use Codex's own writer:
 
-## Security
+```sh
+codex mcp add unreal-mcp --url http://127.0.0.1:8000/mcp
+```
 
-Installing this plugin gives Claude broad, live access to the running Unreal Editor. Treat that access the same way you would treat running arbitrary code from an assistant, because in practice it is.
+This writes user configuration. Do not also register a duplicate project connection or proxy for the same editor.
+With multiple editors, identify the intended instance and use distinct endpoints with appropriate project scope.
 
-**Localhost is not a trust boundary.** The MCP server binds to `localhost:8000` with origin validation. Origin validation protects against a browser tab talking to the server, but any process running as the same user on the same machine can connect. Do not run the MCP server on shared or untrusted machines, and do not expose the port outside the loopback interface.
+## Verify
 
-**`ProgrammaticToolset.execute_tool_script` executes arbitrary Python** inside the editor process. That script has full access to every toolset API, the project on disk, the asset database, and editor-privileged functions. Treat every invocation as a privileged operation that can mutate, move, or delete project content, and expect it to succeed without a second confirmation when approvals are disabled.
+`codex mcp list` proves configuration, not live access. In a fresh chat:
 
-**`--dangerously-skip-permissions` removes the per-tool approval gate.** In that mode Claude can drive the editor and run Python through `execute_tool_script` with no further consent. A bad prompt in that mode can reach into the project and modify a large amount of state before you notice. Prefer not to run Claude Code with `--dangerously-skip-permissions` while this plugin is loaded; if you do, keep the blast radius small (narrow prompts, read-heavy tasks, a throwaway sandbox project).
+> Use $unreal-mcp to inspect the current level and list a few actors without modifying the project.
 
-**Source-control hygiene.** MCP tools edit live `UObject` state and can mutate, move, or delete VCS-tracked assets in a single call. Save and commit (or shelve) before any long MCP-driven session so the working copy is recoverable if Claude produces an unexpected result. Review the diff before submitting.
+The skill uses `list_toolsets → describe_toolset → call_tool`, or advertised native tools when search mode is off.
+Check the returned project/editor information before changes. Asset creation, saving, and readback after restart
+are separate evidence levels.
 
-## What's Available
+See [setup](skills/unreal-mcp/references/setup.md) and [operations](skills/unreal-mcp/references/operations.md).
+Proxy automation is outside v0.1: do not pass TOML to the upstream proxy's `--mcp-json` installer.
+The core plugin needs no Bash; [Python session context](docs/OPTIONAL_HOOK.md) is an explicit optional setup.
 
-All tools are auto-discovered by Claude Code via MCP. No manual configuration needed. Tools cover the full editor surface across these domains:
+## Develop and package
 
-- **Actors and Scene** - spawn, transform, inspect, and delete actors; manage components and outliner folders
-- **Blueprints** - create, edit graphs, add nodes, connect pins, manage variables, compile
-- **Assets and Content** - find, load, save, move, duplicate assets; edit Data Tables, Curve Tables, String Tables
-- **Materials** - author material graphs, create and configure material instances
-- **Meshes and Textures** - inspect/edit static and skeletal meshes, LODs, collisions, Nanite, sockets, bones
-- **Animation** - build Control Rigs, inspect State Trees and Behavior Trees
-- **Sequencer** - create and edit Level Sequences, keyframe animation, manage cameras, Control Rig integration, FBX import/export
-- **VFX** - author Niagara systems and Dataflow graphs
-- **UI** - build UMG widget blueprints, automate Slate UI interaction
-- **Gameplay** - manage gameplay tags, inspect GAS state, create Game Feature Plugins, edit physics assets
-- **Testing** - discover, run, and inspect C++ automation tests with detailed results
-- **Editor** - screenshots, camera control, actor/asset selection, content browser, log inspection
-- **Scripting** - batch multiple tool calls into a single Python script execution
+Use a Git checkout for development (development tools/tests are excluded from the ZIP).
+Create a virtual environment, then run:
+
+```sh
+python -m pip install -r requirements-dev.txt
+python scripts/validate_plugin.py
+python -m unittest discover -s tests -v
+python scripts/package_plugin.py
+```
+
+The deterministic ZIP under `dist/` can be extracted and registered as a local marketplace. It contains skills,
+manifests, docs and helpers; it excludes Git, virtual environments, tests and raw editor logs.
+CI runs the checks on Windows/Linux with Python 3.11/3.14.
+
+See the [implementation plan](docs/MIGRATION_PLAN.zh-CN.md), [validation record](docs/VALIDATION.md), and
+[upstream maintenance notes](UPSTREAM.md). Public plugin-directory submission is a separate follow-up;
+a GitHub fork is not a directory listing.
+
+## License and live access
+
+[MIT](LICENSE), including Epic Games' original notice. External UE code/binaries retain their own terms.
+MCP tools can change live objects and files. Keep the server on loopback, confirm the intended project, and keep
+a recovery point for bulk changes. Installation does not require bypassing Codex permissions.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Unreal Toolset"
+  short_description: "Build and test Unreal Engine MCP toolsets"
+  default_prompt: "Use $create-toolset to add an Unreal Engine toolset for my workflow."

@@ -1,0 +1,19 @@
+{
+  "name": "unreal-engine-skills-for-codex",
+  "version": "0.1.0",
+  "description": "Community Codex adaptation of Epic Games' Unreal Engine skills. Requires the official Unreal MCP plugins and a configured connection.",
+  "author": { "name": "Idris173", "url": "https://github.com/Idris173" },
+  "repository": "https://github.com/Idris173/unreal-engine-skills-for-codex-plugin",
+  "license": "MIT",
+  "skills": "./skills/",
+  "requires_local_executor": true,
+  "interface": {
+    "displayName": "Unreal Engine Skills for Codex",
+    "shortDescription": "Use Unreal Editor's official MCP tools",
+    "longDescription": "Community adaptation of Epic Games' skills for Codex. Includes editor operations, toolset development, and Unreal Agent Skill authoring. Requires a compatible Unreal Engine build and a separately configured MCP connection.",
+    "developerName": "Idris173",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": ["Inspect the current Unreal Editor project through its MCP connection."]
+  }
+}

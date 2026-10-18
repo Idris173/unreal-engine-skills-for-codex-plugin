@@ -1,11 +1,11 @@
 ---
 name: create-toolset
-description: "Use this skill when authoring or extending an Unreal Engine toolset, a class of static, AI-callable functions registered with `ToolsetRegistry` and exposed through the unreal-mcp server. Trigger when the user wants to add, expose, or register a new tool method, create a new toolset, or extend an existing one such as `BlueprintTools`, `StaticMeshTools`, `ObjectTools`, `LevelTools`, or `MaterialTools`. Concrete triggers: 'add a tool to X', 'expose this via MCP', 'register a function so Claude/the agent can call it', 'wire this into the toolset registry', 'create a new toolset for Y', 'add a Python toolset', 'make this AI-callable'; adding a `static` method to a `*Tools.cpp/.h/.py` file; editing files under a `Toolsets/` folder; designing tool parameters, return types, or struct schemas for a toolset. SKIP for: invoking existing tools at runtime (use unreal-mcp instead), authoring an Agent Skill (use unreal-skill), generic refactors that happen to touch a toolset file but don't add or redesign a tool, or unrelated uses of the word 'toolset'."
+description: "Create or extend Unreal Engine C++ and Python toolsets registered with ToolsetRegistry and exposed through Epic's MCP server. Use for new tool APIs, schemas, registration, and tool tests. Excludes invoking existing editor tools, authoring UE Agent Skills, and unrelated refactors."
 ---
 
 # Create Toolset
 
-You are authoring or extending an Unreal Engine toolset: a collection of static, AI-callable functions registered with the `ToolsetRegistry` and exposed through the MCP server. The goal is to expand the surface of things Claude can do inside the editor.
+You are authoring or extending an Unreal Engine toolset: a collection of static, AI-callable functions registered with the `ToolsetRegistry` and exposed through the MCP server. The goal is to expand what Codex and other MCP clients can do inside the editor. Follow the actual engine build's source and conventions when they differ from the examples here. Runtime identifiers may include module-qualified prefixes; pass the exact registered names returned by discovery rather than the short example names in this document.
 
 ## Principles
 
@@ -23,20 +23,20 @@ A good toolset is:
 
 Work through these questions in order before touching any code.
 
-**1. Does the functionality already exist?** If the editor is running, call `list_toolsets` via MCP, then `describe_toolset` on anything relevant. If MCP isn't available, search the codebase for folders named `Toolsets` and read the C++ headers or Python toolset files there. If the capability is already exposed, there's nothing to do. Tell the user and point them to the right tool.
+**1. Does the functionality already exist?** Check the current MCP connection before assuming an editor is reachable. With tool search enabled, call `list_toolsets`, then `describe_toolset` on relevant candidates; otherwise inspect the advertised native tools and their schemas. If MCP isn't available, search the codebase for folders named `Toolsets` and read the C++ headers or Python toolset files there. Reuse existing functionality when it meets the request; if the user requested an extension or fix, inspect the missing behavior before deciding no code change is needed.
 
 **2. Is the request more general than it sounds?** Users often ask for something domain-specific that is actually an instance of a broader pattern. Before looking for a domain toolset, ask whether the capability truly belongs to that domain or whether it applies more widely. For example, a request for "read blueprint asset metadata" sounds like it belongs in `BlueprintTools`, but metadata applies to all assets, so the right place is `AssetTools`. Solving it generically is almost always better than solving it narrowly.
 
 **3. Does a toolset for this domain already exist?** If the functionality is missing but a toolset already covers the same domain (e.g. you're adding a mesh query to `StaticMeshTools`), add to that toolset rather than creating a new one.
 
-**4. Does a new toolset need its own plugin?** If you're creating a new toolset and it's closely related to an existing plugin, add it there. If it's a distinct enough domain, it may warrant its own plugin. Ask the user if it isn't obvious.
+**4. Does a new toolset need its own plugin?** If you're creating a new toolset and it's closely related to an existing plugin, add it there. If it's a distinct enough domain, it may warrant its own plugin. Follow the user's scope and repository architecture; ask only when a material ownership or packaging choice remains unresolved.
 
-**5. Choose the implementation language.** This is the user's call, but help them make an informed one. Python is generally preferred: it's faster to iterate and easier to change. Assess both options:
+**5. Choose the implementation language.** Preserve an explicit language choice and the existing plugin's conventions. For a new toolset without a specified language, assess the required APIs and choose a suitable implementation; Python is generally faster to iterate:
 
-- **Python**: Check what's available in the Python stubs (`<project_root>/Intermediate/PythonStub/unreal.py`; search it, don't read it wholesale). If the file doesn't exist, the user needs to enable **Developer Mode** in **Edit → Project Settings → Plugins → Python** and restart the editor. This is worth doing for any toolset work, so recommend it proactively. If the necessary APIs are all there, Python is the right choice. If most of the functionality is available but something small is missing, flag the gap to the user; a minor engine tweak may still make Python the better option overall.
+- **Python**: Search the Python stubs (`<project_root>/Intermediate/PythonStub/unreal.py`) for the required APIs. If stubs are absent, inspect the installed API/source or use the project's documented stub-generation workflow; Developer Mode in the Python plugin settings can generate stubs on editor restart. Do not change settings or restart merely to obtain stubs when the API can already be verified. If required Python coverage is missing, assess the C++ alternative or a scoped binding change.
 - **C++**: The right choice when Python coverage is thin or non-existent. Most of what you need simply isn't in the stubs.
 
-Summarize what's available in each and let the user decide before writing any code. If the APIs needed aren't available in either language, don't work around it. Stop and tell the user so they can extend the engine. Workarounds create fragile tools that break silently.
+Explain a material language tradeoff when useful, then continue within the user's existing authorization. If neither language exposes the required capability, report the missing API and the smallest needed engine extension; do not invent unsupported calls. Engine changes outside the requested scope require a separate decision.
 
 ## Shared Conventions
 
@@ -231,7 +231,7 @@ TArray<UMyThing*> UMyToolset::FindThings(const FString& NamePattern)
 
 ### Tests
 
-Before running tests, compile your changes with `LiveCodingToolset.CompileLiveCoding`. It blocks until done and surfaces MSVC diagnostics. Fix any compile errors before proceeding.
+Before running tests, compile using the project's supported build workflow. If the connected engine advertises `LiveCodingToolset.CompileLiveCoding` and Live Coding is appropriate for the change, inspect its schema and diagnostics. Otherwise use the required full build/restart; Live Coding availability and supported changes vary by platform/build. Fix compile errors before testing.
 
 Every tool needs test coverage for both the success path and every error path. Write at least one test that confirms the tool does what it says, and a separate test for each condition that raises. Use the `BEGIN_DEFINE_SPEC` / `END_DEFINE_SPEC` pattern. Read existing tests in `Plugins/Experimental/Toolsets` for reference. Place tests near the toolset and follow the convention in the same plugin:
 
@@ -371,11 +371,13 @@ class MyToolsetTestCase(ToolCallTestCase):
             MyToolset.find_things("")
 ```
 
-Before re-running tests after editing, reload the plugin's package. The editor won't pick up changes otherwise. Enable Remote Execution in **Edit → Project Settings → Plugins → Python → Enable Remote Execution**, then run:
+Before re-running tests after editing, reload the plugin's package using the project's supported workflow. The editor will not otherwise pick up the new Python code. If Python Remote Execution is already configured, the upstream helper can be used after confirming it exists in the target build:
 
 ```bash
 python Engine/Plugins/Experimental/ToolsetRegistry/Content/Python/toolset_registry/tests/reload_remote.py your_plugin
 ```
+
+Do not enable an additional remote execution service solely to follow this example when an existing reload mechanism suffices. If it is required by the chosen workflow, establish its configuration within the user's authorized setup scope.
 
 ## Testing Your Work
 
@@ -383,7 +385,7 @@ Tests are how you verify the toolset actually works and catch regressions when t
 
 ### Live Editor (preferred)
 
-Running tests against a live editor instance using `unreal-mcp` is the fastest way to iterate. Changes can be compiled or hot-reloaded without restarting, and results come back immediately. This flow works for both C++ and Python tests.
+When a live editor is connected, MCP is a useful path for both C++ and Python test iteration. Compile or reload changes first, accounting for changes that require a full restart. Discover `AutomationTestToolset` and its actual schema before invoking the operations below; use `call_tool` in search mode or the advertised native tools otherwise.
 
 Run tests via MCP:
 
@@ -396,7 +398,7 @@ When iterating on Python tests, call `DiscoverTests` with `force_rediscover=true
 
 ### Command Line (no running editor)
 
-When no editor is running, the command line launches a headless editor instance, runs the specified tests, and exits. It's slower due to startup time (~30 seconds) but requires no running editor and is useful in CI or when the editor isn't available.
+When no editor is connected, the command line can launch an unattended editor instance and run the specified tests. This is useful in CI; startup time and command-line support depend on the project and engine build.
 
 Use `UnrealEditor-Cmd` with `-ExecCmds` to invoke the automation test system directly:
 
@@ -404,7 +406,7 @@ Use `UnrealEditor-Cmd` with `-ExecCmds` to invoke the automation test system dir
 UnrealEditor-Cmd.exe <Project>.uproject -ExecCmds="Automation RunTests AI.MyToolset;quit" -Unattended -NullRHI
 ```
 
-Replace `AI.MyToolset` with the test filter matching your toolset's spec name. Check how existing tests in the same plugin are run to confirm the right flags and filter prefix for the project.
+Replace `AI.MyToolset` with the test filter matching your toolset's spec name and use the actual editor executable for the platform. Check the project's test runner for supported flags and completion behavior. Read the automation results/logs, not just the process exit code, and report tests as unrun if the required engine environment is unavailable.
 
 ## Reviewing Your Work
 

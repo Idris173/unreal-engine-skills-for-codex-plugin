@@ -1,0 +1,12 @@
+{
+  "name": "unreal-codex",
+  "interface": { "displayName": "Unreal Codex Community" },
+  "plugins": [
+    {
+      "name": "unreal-engine-skills-for-codex",
+      "source": { "source": "local", "path": "./" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Developer Tools"
+    }
+  ]
+}

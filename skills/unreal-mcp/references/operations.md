@@ -1,51 +1,63 @@
 # Operations: Console Commands, Settings, Recovery
 
-Read this when something is misbehaving with the MCP server (tools missing, port collision, stale tool registry), or when you need a non-default configuration.
+Read this for missing tools, port conflicts, stale catalogs, or non-default server settings. Check the actual engine implementation and runtime schema if they differ from the upstream baseline documented here.
 
-## Console commands
+## Unreal console commands
 
-Run these from the Unreal Editor console (`~`).
+Run these in the Unreal Editor console, not in the Codex shell:
 
-| Command                                              | Use it for                                                                                               |
-|------------------------------------------------------|----------------------------------------------------------------------------------------------------------|
-| `ModelContextProtocol.StartServer [port]`            | Start the MCP server. Pass a port to override the default (e.g. when 8000 is in use).                    |
-| `ModelContextProtocol.StopServer`                    | Stop the server. Useful if the registry is in a bad state and you want a clean restart.                  |
-| `ModelContextProtocol.RefreshTools`                  | Re-register every toolset. Run this after the user enables a new toolset plugin.                         |
-| `ModelContextProtocol.GenerateClientConfig <client>` | Regenerate the per-client config file. Args: `ClaudeCode`, `Cursor`, `VSCode`, `Gemini`, `Codex`, `All`. |
+| Command | Purpose |
+| --- | --- |
+| `ModelContextProtocol.StartServer [port]` | Start the server, optionally overriding its port. |
+| `ModelContextProtocol.StopServer` | Stop the server when an authorized recovery requires it. |
+| `ModelContextProtocol.RefreshTools` | Re-register loaded toolsets after registration changes. Enabling a new plugin may still require an editor restart. |
+| `ModelContextProtocol.GenerateClientConfig Codex` | Generate a new `.codex/config.toml`; refuses to overwrite an existing TOML file. |
+
+For a changed port or path, update the existing Codex entry deliberately. Do not delete existing TOML or use a JSON config writer to refresh it. See [setup.md](setup.md) for scope and merge options.
 
 ## Tool-search mode
 
-`tools/list` has two modes, controlled by the `bEnableToolSearch` UPROPERTY on `UModelContextProtocolSettings` (default `true`):
+`bEnableToolSearch` on `UModelContextProtocolSettings` controls the catalog:
 
-- **`True`** (default): `tools/list` returns only `list_toolsets`, `describe_toolset`, `call_tool`. Toolset tools are dispatched server-side through `call_tool` and stay out of the prompt; the catalog never changes mid-session, so the prompt cache stays warm.
-- **`False`**: every toolset tool is registered as a native MCP tool at startup, schemas visible upfront. Used by the hash-mapping commandlet.
+- **`True` (upstream default):** `tools/list` advertises `list_toolsets`, `describe_toolset`, and `call_tool`. Discover schemas and dispatch individual toolset tools through `call_tool`.
+- **`False`:** toolset tools are native MCP tools with schemas in the catalog. Use those actual names and schemas directly; do not assume the meta-tools exist in this mode.
 
-Override in the same `.ini` used for `bAutoStartServer`:
+The override lives alongside `bAutoStartServer` in the per-user editor settings:
 
 ```ini
 [/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]
 bEnableToolSearch=False
 ```
 
-## Proxy recovery
+Changing this setting is not a routine solution for missing tools. Check connection state and plugin registration first.
 
-With the optional proxy, the client connects to `unreal-mcp-proxy` instead of directly to `unreal-mcp`. The proxy keeps that client session open while it reconnects to Unreal. Do not replace it with a second direct connection during normal recovery.
+## Direct HTTP recovery
 
-- `unreal_mcp_status` reports whether the proxy holds an initialized upstream session. It does not test current reachability.
-- Visible tools can come from a stored catalog. Verify live access with a read-only Unreal tool call.
-- With no stored catalog and no upstream session, the proxy exposes only `unreal_mcp_status`. After recovery, it sends `notifications/tools/list_changed`.
-- Clients must fetch `tools/list` again after that notification. A client that ignores it can keep the status-only catalog, or an older cached catalog. Once Unreal is reachable, use the client's reconnect or configuration-reload action if available. Otherwise, restart the client to obtain the catalog. This is a client refresh limitation, not the normal proxy recovery workflow.
-- Killing the proxy closes the client's STDIO connection. `Transport closed` then needs client reconnection; starting an unrelated proxy process cannot repair that connection. Ask before stopping active proxies.
+1. Inspect Codex's loaded MCP connection and its configured endpoint. `codex mcp list` and `codex mcp get <server-name>` help inspect configuration; they do not prove a live Unreal session. Check project trust and effective config scope when a valid project file appears ignored.
+2. Inspect the intended editor's Output Log, startup arguments, and server settings. With multiple editors, identify which process owns the configured port.
+3. Resolve the specific failure (server stopped, port collision, missing plugin, or wrong path). Retry a read-only tool call once the server is ready. If Codex retains a failed/stale connection, use its available reconnect/reload controls or start a new session.
 
-If calls still fail, check the editor's MCP startup log, the configured endpoint, and proxy stderr. With multiple editors, identify which process owns the configured port. A running editor alone does not prove that the proxy targets its MCP server. Follow the recorded `.mcp.json` entry and the engine's `Extras/Proxy/README.md` for your build's transport limits.
+Keep recovery bounded: repeated identical failures call for new evidence, not an endless retry loop. A mutation that timed out may already have completed. After reconnecting, query the affected asset/state before deciding whether to replay it; do not blindly retry a create, delete, or other non-idempotent operation. Restarting the editor or terminating processes can affect unsaved work; use the existing authorization and preserve that work first.
 
-## Troubleshooting matrix
+## Existing proxy connections
 
-| Symptom                                               | What to do                                                                                                                                                                                                                                                                                                          |
-|-------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Unreal tools are missing, or `list_toolsets` errors | Check for both `unreal-mcp` and `unreal-mcp-proxy` in the client configuration. Check the editor's MCP startup log and configured endpoint. For a proxy connection, follow **Proxy recovery** above before concluding that the editor is stopped. |
-| Editor logs "Failed to listen on port"                | Another process holds the default port. Change `ServerPortNumber` in the per-user `EditorPerProjectUserSettings.ini` (see `setup.md`), or pass `-ModelContextProtocolPort=<port>` on the next launch; restart the editor, and re-run `ModelContextProtocol.GenerateClientConfig ClaudeCode` to refresh `.mcp.json`. |
-| A toolset you expect (e.g. `NiagaraTools`) is missing | Run `ModelContextProtocol.RefreshTools`. If still missing, the toolset's plugin may not be enabled in the `.uproject`. Check there.                                                                                                                                                                                 |
-| Tool calls hang or return errors                      | Editor may be busy compiling, loading a level, or in PIE. Wait and retry. For long compiles, prefer `LiveCodingToolset.CompileLiveCoding`. It returns when the compile actually finishes.                                                                                                                           |
-| `AIAssistantToolset.GetDockedContext` returns empty   | The Claude Code tab must be docked inside an asset editor (Blueprint, Material, etc.) to provide docked context. If undocked, that tool has nothing to report.                                                                                                                                                      |
-| Concurrent tool calls produce conflicting results     | MCP accepts concurrent requests and handles dispatch synchronization. Serialize dependent calls and mutations that affect the same state. Use parallel calls only for independent work when the tools support safe overlap.                                                                                         |
+Proxy behavior is engine-build dependent; this adaptation has not validated a Codex proxy installation. For an already configured proxy, inspect the build's `Extras/Proxy/README.md` and its actual STDIO command/arguments.
+
+- `unreal_mcp_status`, if present, reports an initialized upstream session, not a fresh reachability check.
+- The catalog can be cached. Confirm recovery with a read-only Unreal tool call.
+- With no cached catalog or upstream session, the proxy may expose only status, then emit `notifications/tools/list_changed` after recovery. Codex must refresh the catalog; reconnect/reload or start a new session if it remains stale.
+- Killing the proxy closes Codex's STDIO connection. An unrelated new proxy process cannot repair it; the client must reconnect. Do not kill active proxies unless that interruption is within the user's requested recovery.
+
+Inspect proxy stderr, the server startup log, and the configured upstream endpoint if calls still fail. Do not add a second direct connection as an implicit proxy recovery step, and never pass a TOML config to a JSON-only installer.
+
+## Troubleshooting
+
+| Symptom | Next check |
+| --- | --- |
+| No Unreal tools | Inspect loaded server names, config scopes, project trust, endpoint, and the editor log. Server names may be customized. Distinguish search mode, a native catalog, and proxy status-only mode before diagnosing a stopped editor. |
+| "Failed to listen on port" | Identify the port owner. Choose an available port with the authorized server settings, then update the existing Codex URL. Do not stop an unrelated service. |
+| Expected toolset is missing | Confirm its plugin exists and is enabled in this engine/project. Refresh registration; honor plugin restart requirements. Do not infer availability from another UE build. |
+| Calls hang or fail | Check compilation, level loading, and PIE. Wait for a known in-progress operation, inspect errors, then retry only when state changed. Discover Live Coding support before using it. |
+| Live Coding unavailable or insufficient | Use the project's supported build workflow. Coordinate any needed editor restart and preserve unsaved work. |
+| `AIAssistantToolset.GetDockedContext` is empty or absent | Docked context depends on an editor-side client integration. A standalone Codex connection does not guarantee it. Use explicit asset paths, selection/query tools, or a focused clarification to identify the target. |
+| Conflicting mutation results | Serialize dependent calls and all changes sharing an asset/editor state, including changes by multiple agents. Read back state before continuing. |

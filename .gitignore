@@ -2,3 +2,10 @@
 # Generated when running the description-optimization loop or eval runs
 # from the skill-creator skill against any skill in this repo.
 skills/*-workspace/
+
+# Local validation and distributable output.
+.venv/
+__pycache__/
+*.py[cod]
+dist/
+.test-artifacts/

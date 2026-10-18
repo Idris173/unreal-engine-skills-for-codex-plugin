@@ -1,0 +1,4 @@
+interface:
+  display_name: "Unreal MCP"
+  short_description: "Operate Unreal Editor and configure its MCP connection"
+  default_prompt: "Use $unreal-mcp to inspect my Unreal project through its connected editor."
